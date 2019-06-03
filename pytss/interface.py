@@ -1,6 +1,6 @@
 import functools
 import os
-from tspi_exceptions import *
+from pytss.tspi_exceptions import *
 
 from cffi import FFI, VerificationError
 INTERFACE_H = os.path.dirname(os.path.abspath(__file__)) + '/interface.h'
@@ -365,7 +365,7 @@ def wrap_libtspi_func(func):
                 raise TPM_E_DEFEND_LOCK_RUNNING
             else:
                 raise TpmException("Unknown Error %x" % ret)
-            
+
     return wrapper
 
 tss_lib.Tspi_EncodeDER_TssBlob = wrap_libtspi_func(tss_lib.Tspi_EncodeDER_TssBlob)

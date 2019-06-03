@@ -437,12 +437,12 @@ def get_ekcert(context):
     # Verify that the certificate is well formed
     tag = blob[0] << 8 | blob[1]
     if tag != 0x1001:
-            print "Invalid tag %x %x\n" % (blob[0], blob[1])
+            print("Invalid tag %x %x\n" % (blob[0], blob[1]))
             return None
 
     certtype = blob[2]
     if certtype != 0:
-            print "Not a full certificate\n"
+            print("Not a full certificate\n")
             return None
 
     ekbuflen = blob[3] << 8 | blob[4]
@@ -450,7 +450,7 @@ def get_ekcert(context):
 
     blob = nv.read_value(offset, 2)
     if len(blob) < 2:
-        print "Invalid length"
+        print("Invalid length")
         return None
 
     tag = blob[0] << 8 | blob[1]
@@ -458,9 +458,9 @@ def get_ekcert(context):
         offset += 2
         ekbuflen -= 2
     elif blob[0] != 0x30:
-        print "Invalid header %x %x" % (blob[0], blob[1])
+        print("Invalid header %x %x" % (blob[0], blob[1]))
         return None
-    
+
     ekbuf = bytearray()
     ekoffset = 0
 
@@ -602,7 +602,7 @@ def aik_challenge_response(context, aikblob, asymchallenge, symchallenge):
     :param context: The TSS context to use
     :param aikblob: The Attestation Identity Key blob
     :param asymchallenge: The asymmetrically encrypted challenge
-    :param symchallenge: The symmertrically encrypted challenge    
+    :param symchallenge: The symmertrically encrypted challenge
     :returns: The decrypted challenge
     """
 
