@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 pytss is a python language wrapper for the Tspi library provided by the
 TrouSerS project. libtspi is a library for interfacing with a TPM services

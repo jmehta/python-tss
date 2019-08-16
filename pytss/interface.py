@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import functools
 import os
 from pytss.tspi_exceptions import *

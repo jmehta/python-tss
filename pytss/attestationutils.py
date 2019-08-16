@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from pytss import TspiContext
 from tspi_defines import *
 import tspi_exceptions

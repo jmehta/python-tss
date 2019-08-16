@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from pytss.interface import tss_lib, ffi
 import pytss.tspi_exceptions
 import hashlib
@@ -474,7 +476,7 @@ class TspiTPM(TspiObject):
         tss_lib.Tspi_Context_FreeMemory(self.context, blob[0])
         return ret
 
-class TspiContext():
+class TspiContext(object):
     def __init__(self):
         self.context = ffi.new('TSS_HCONTEXT *')
         tss_lib.Tspi_Context_Create(self.context)
