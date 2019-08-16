@@ -1,16 +1,33 @@
 #!/usr/bin/env python3
 
-from pytss import TspiContext
-from tspi_defines import *
-import tspi_exceptions
 import uuid
-import M2Crypto
-from M2Crypto import m2
 import pyasn1
 import hashlib
 import os
 import struct
 import base64
+
+from cryptography import exceptions as crypto_exceptions
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import (
+    padding,
+    rsa,
+)
+from cryptography.hazmat.primitives.ciphers import (
+    algorithms,
+    Cipher,
+    modes,
+)
+from cryptography.hazmat.primitives.serialization import (
+    Encoding,
+    PublicFormat,
+)
+
+from pytss import TspiContext
+from tspi_defines import *
+import tspi_exceptions
 
 well_known_secret = bytearray([0] * 20)
 srk_uuid = uuid.UUID('{00000000-0000-0000-0000-000000000001}')
@@ -517,21 +534,33 @@ def verify_ek(context, ekcert):
     :param ekcert: The Endorsement Key certificate
     :returns: True if the certificate can be verified, false otherwise
     """
-    ek509 = M2Crypto.X509.load_cert_der_string(ekcert)
+    ek509 = x509.load_der_x509_certificate(ekcert, default_backend())
     for signer in trusted_certs:
-        signcert = M2Crypto.X509.load_cert_string(trusted_certs[signer])
-        signkey = signcert.get_pubkey()
-        if ek509.verify(signkey) == 1:
-            return True
+        signcert = x509.load_pem_x509_certificate(trusted_certs[signer],
+                                                  default_backend())
+        signkey = signcert.public_key()
+
+        # X509 does not support validation/verification in pyca/cryptography
+        # open issue: https://github.com/pyca/cryptography/issues/2381
+
+        # Check if the EKCERT was signed by one of the trusted certs
+        # if ek509.verify(signkey) == 1:
+        #    return True
 
     for key in trusted_keys:
-        e = m2.bn_to_mpi(m2.hex_to_bn(trusted_keys[key]['exponent']))
-        n = m2.bn_to_mpi(m2.hex_to_bn(trusted_keys[key]['key']))
-        rsa = M2Crypto.RSA.new_pub_key((e, n))
-        pubkey = M2Crypto.EVP.PKey()
-        pubkey.assign_rsa(rsa)
-        if ek509.verify(pubkey) == 1:
-            return True
+
+        e = int(trusted_keys[key]['exponent'], 16)
+        n = int(binascii.hexlify(trusted_keys[key]['key'], 16))
+
+        public_num = rsa.RSAPublicNumbers(e, n)
+        pubkey = public_num.public_key(default_backend())
+
+        # X509 does not support validation/verification in pyca/cryptography
+        # open issue: https://github.com/pyca/cryptography/issues/2381
+
+        # Check if the EKCERT was signed by one of the trusted keys
+        # if ek509.verify(pubkey) == 1:
+        #    return True
 
     return False
 
@@ -558,16 +587,16 @@ def generate_challenge(context, ekcert, aikpub, secret, ek=None):
         ekcert = ekcert.replace('\x2a\x86\x48\x86\xf7\x0d\x01\x01\x07',
                                 '\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01')
 
-        x509 = M2Crypto.X509.load_cert_string(ekcert, M2Crypto.X509.FORMAT_DER)
-        pubkey = x509.get_pubkey()
-        rsakey = pubkey.get_rsa()
+        x509_cert = x509.load_der_x509_certificate(ekcert)
+        rsakey = x509_cert.public_key()
+        assert isinstance(rsakey, rsa.RSAPublicKey)
+
     else:
-        pubkey = ek.get_pubkey()
-        n = m2.bin_to_bn(pubkey)
-        n = m2.bn_to_mpi(n)
-        e = m2.hex_to_bn("010001")
-        e = m2.bn_to_mpi(e)
-        rsakey = M2Crypto.RSA.new_pub_key((e, n))
+        ek_pubkey = ek.public_key()
+        e = int('010001', 16)
+        n = int(binascii.hexlify(ek_pubkey), 16)
+        public_num = rsa.RSAPublicNumbers(e, n)
+        rsakey = public_num.public_key(default_backend())
 
     # TPM_ALG_AES, TPM_ES_SYM_CBC_PKCS5PAD, key length
     asymplain = bytearray([0x00, 0x00, 0x00, 0x06, 0x00, 0xff, 0x00, 0x10])
@@ -581,18 +610,21 @@ def generate_challenge(context, ekcert, aikpub, secret, ek=None):
     asymplain = tpm_oaep(asymplain, len(rsakey)/8)
 
     # Generate the EKpub-encrypted asymmetric buffer containing the aes key
-    asymenc = bytearray(rsakey.public_encrypt(asymplain,
-                                              M2Crypto.RSA.no_padding))
+    asymenc = bytearray(
+                rsakey.encrypt(
+                    asymplain,
+                    padding.MGF1(algorithm=hashes.SHA1())
+                    )
+                )
 
     # And symmetrically encrypt the secret with AES
-    cipher = M2Crypto.EVP.Cipher('aes_128_cbc', aeskey, iv, 1)
-    cipher.update(secret)
-    symenc = cipher.final()
+    cipher = Cipher(algorithms.AES(aeskey), modes.CBC(iv), default_backend())
+    encryptor = cipher.encryptor()
+    symenc = encryptor.update(secret) + encryptor.finalize()
 
     symheader = struct.pack('!llhhllll', len(symenc) + len(iv),
                             TPM_ALG_AES, TPM_ES_SYM_CBC_PKCS5PAD,
                             TPM_SS_NONE, 12, 128, len(iv), 0)
-
     symenc = symheader + iv + symenc
 
     return (asymenc, symenc)
@@ -638,22 +670,27 @@ def quote_verify(data, validation, aik, pcrvalues):
     select = 0
     maxpcr = 0
 
-    # Verify that the validation blob was generated by a trusted TPM
-    pubkey = aik.get_pubkey()
-
-    n = m2.bin_to_bn(pubkey)
-    n = m2.bn_to_mpi(n)
-    e = m2.hex_to_bn("010001")
-    e = m2.bn_to_mpi(e)
-    rsa = M2Crypto.RSA.new_pub_key((e, n))
-
     m = hashlib.sha1()
     m.update(data)
     md = m.digest()
 
+    # Verify that the validation blob was generated by a trusted TPM
+    aik_pubkey = aik.get_pubkey()
+
+    e = int('010001', 16)
+    n = int(binascii.hexlify(aik_pubkey), 16)
+    public_num = rsa.RSAPublicNumbers(e, n)
+    pubkey = public_num.public_key(default_backend())
+
     try:
-        ret = rsa.verify(md, str(validation), algo='sha1')
-    except M2Crypto.RSA.RSAError:
+        ret = pubkey.verify(
+            str(validation),
+            md,
+            padding.PSS(mgf=padding.MGF1(hashes.SHA1()),
+                        salt_length=padding.PSS.MAX_LENGTH)
+            hashes.SHA1()
+        )
+    except crypto_exceptions.InvalidKey:
         return False
 
     # And then verify that the validation blob corresponds to the PCR
