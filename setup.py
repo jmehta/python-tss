@@ -37,42 +37,23 @@ else:
     # building bdist - cffi is here!
     ext_modules = [pytss.interface.ffi.verifier.get_extension()]
 
-
 setup(
     name=__about__['__title__'],
     version=__about__['__version__'],
-
     description=__about__['__summary__'],
-    license=open('LICENSE').read(),
-
     author=__about__['__author__'],
     author_email=__about__['__email__'],
-
-    install_requires=[
-        'cffi',
-    ],
+    url='https://github.com/jmehta/python-tss/blob/master/setup.py',
+    install_requires=['cffi', 'cryptography'],
     extras_require={
-        'tests': [
-            'pep8',
-            'pylint',
-            'pytest',
-        ],
+        'tests': ['pep8', 'pylint', 'pytest'],
     },
-    tests_require=[
-        'pytest',
-    ],
-
-    packages=[
-        'pytss',
-    ],
-
-    package_data={
-        'pytss': [
-            'interface.h'
-        ]
-    },
-
+    tests_require=['pytest'],
+    packages=['pytss'],
+    package_dir={'pytss': 'pytss'},
+    package_data={'pytss': ['interface.h']},
+    data_files = [('', ['LICENSE.txt'])],
+    include_package_data=True,
     ext_modules=ext_modules,
-
     zip_safe=False,
 )
